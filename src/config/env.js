@@ -12,10 +12,10 @@ dotenv.config({
 
 export const env = {
   port: Number(process.env.PORT || 4000),
-  mongodbUri: process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/attendance_platform",
-  jwtSecret: process.env.JWT_SECRET || "development-secret",
-  clientUrl: process.env.CLIENT_URL || "http://localhost:5173",
-  clientUrls: (process.env.CLIENT_URLS || process.env.CLIENT_URL || "http://localhost:5173")
+  mongodbUri: process.env.MONGODB_URI,
+  jwtSecret: process.env.JWT_SECRET,
+  clientUrl: process.env.CLIENT_URL || "https://teacher-attend.xystems.tech",
+  clientUrls: (process.env.CLIENT_URLS || process.env.CLIENT_URL || "https://teacher-attend.xystems.tech")
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean),
