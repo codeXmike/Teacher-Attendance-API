@@ -15,7 +15,6 @@ export const scanAttendance = (io) => async (req, res) => {
     throw new HttpError(400, "Token is required");
   }
 
-  // Validate location if provided
   if (location) {
     try {
       validateLocation(location);
@@ -24,21 +23,20 @@ export const scanAttendance = (io) => async (req, res) => {
     }
   }
 
-  // Extract JWT from Authorization header if provided (endpoint is public, so req.auth may be undefined)
   let authPayload = null;
   const authorization = req.headers.authorization || "";
   if (authorization.startsWith("Bearer ")) {
     const jwtToken = authorization.slice(7);
     try {
       authPayload = jwt.verify(jwtToken, env.jwtSecret);
-    } catch (err) {
+    } catch {
       throw new HttpError(401, "Invalid authentication token");
     }
   }
 
-  // Support both authenticated (JWT) and unauthenticated (QR scan with credentials) flows
   const authStudentId = authPayload?.id;
   const authLecturerId = authPayload?.lecturerId;
+
   const finalStudentId = authStudentId || studentId;
   const finalLecturerId = authLecturerId || lecturerId;
 
@@ -46,9 +44,10 @@ export const scanAttendance = (io) => async (req, res) => {
     throw new HttpError(400, "Student and lecturer identification required");
   }
 
-  const student = await Student.findOne({ _id: finalStudentId, lecturerId: finalLecturerId });
+  // ✅ FIXED (no lecturerId check)
+  const student = await Student.findById(finalStudentId);
   if (!student) {
-    throw new HttpError(404, "Student workspace not found");
+    throw new HttpError(404, "Student not found");
   }
 
   const session = await Session.findOne({
@@ -61,7 +60,11 @@ export const scanAttendance = (io) => async (req, res) => {
     throw new HttpError(400, "Session token is invalid or expired");
   }
 
-  const alreadyRecorded = await Attendance.findOne({ studentId: student.id, sessionId: session.id });
+  const alreadyRecorded = await Attendance.findOne({
+    studentId: student.id,
+    sessionId: session.id
+  });
+
   if (alreadyRecorded) {
     throw new HttpError(409, "Attendance already recorded for this session");
   }
@@ -73,7 +76,10 @@ export const scanAttendance = (io) => async (req, res) => {
     timestamp: new Date()
   });
 
-  const attendanceCount = await Attendance.countDocuments({ sessionId: session.id });
+  const attendanceCount = await Attendance.countDocuments({
+    sessionId: session.id
+  });
+
   io.to(`session:${session.id}`).emit("attendance:created", {
     id: attendance.id,
     sessionId: session.id,
@@ -140,9 +146,11 @@ export const deleteAttendance = (io) => async (req, res) => {
   }
 
   const sessionId = attendance.sessionId;
+
   await Attendance.deleteOne({ _id: attendanceId });
 
   const attendanceCount = await Attendance.countDocuments({ sessionId });
+
   io.to(`session:${sessionId}`).emit("attendance:deleted", {
     id: attendanceId,
     sessionId,
@@ -168,16 +176,17 @@ export const manuallyAddAttendance = (io) => async (req, res) => {
     throw new HttpError(404, "Session not found");
   }
 
-  const student = await Student.findOne({
-    _id: studentId,
-    lecturerId: req.auth.lecturerId
-  });
-
+  // ✅ FIXED (no lecturerId check)
+  const student = await Student.findById(studentId);
   if (!student) {
     throw new HttpError(404, "Student not found");
   }
 
-  const alreadyRecorded = await Attendance.findOne({ studentId: student.id, sessionId: session.id });
+  const alreadyRecorded = await Attendance.findOne({
+    studentId: student.id,
+    sessionId: session.id
+  });
+
   if (alreadyRecorded) {
     throw new HttpError(409, "Attendance already recorded for this session");
   }
@@ -189,7 +198,10 @@ export const manuallyAddAttendance = (io) => async (req, res) => {
     timestamp: new Date()
   });
 
-  const attendanceCount = await Attendance.countDocuments({ sessionId: session.id });
+  const attendanceCount = await Attendance.countDocuments({
+    sessionId: session.id
+  });
+
   io.to(`session:${session.id}`).emit("attendance:created", {
     id: attendance.id,
     sessionId: session.id,
@@ -225,10 +237,10 @@ export const getAvailableStudents = async (req, res) => {
     throw new HttpError(404, "Session not found");
   }
 
-  // Get all students in this lecturer's workspace for the course
   const course = await Course.findById(session.courseId);
-  
-  let query = { lecturerId: req.auth.lecturerId };
+
+  // ✅ FIXED (no lecturerId filter)
+  let query = {};
 
   if (searchQuery) {
     query.$or = [
@@ -239,12 +251,17 @@ export const getAvailableStudents = async (req, res) => {
 
   const students = await Student.find(query).select("_id name matricNo");
 
-  // Get students already in this session
-  const attendedStudents = await Attendance.find({ sessionId: session.id }).select("studentId");
-  const attendedSet = new Set(attendedStudents.map((a) => a.studentId.toString()));
+  const attendedStudents = await Attendance.find({
+    sessionId: session.id
+  }).select("studentId");
 
-  // Filter out students who already have attendance
-  const available = students.filter((s) => !attendedSet.has(s._id.toString()));
+  const attendedSet = new Set(
+    attendedStudents.map((a) => a.studentId.toString())
+  );
+
+  const available = students.filter(
+    (s) => !attendedSet.has(s._id.toString())
+  );
 
   res.json(available);
 };

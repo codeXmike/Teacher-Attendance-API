@@ -11,7 +11,8 @@ const signToken = (payload) =>
   });
 
 export const register = async (req, res) => {
-  const { role, name, email, password, matricNo, lecturerEmail, deviceId } = req.body;
+
+  const { role, name, email, password, matricNo, deviceId } = req.body;
 
   if (!role || !name || !password) {
     throw new HttpError(400, "Role, name, and password are required");
@@ -43,22 +44,21 @@ export const register = async (req, res) => {
   }
 
   if (role === "student") {
-    if (!matricNo || !lecturerEmail) {
-      throw new HttpError(400, "Matric number and lecturer email are required for students");
+    if (!matricNo) {
+      throw new HttpError(400, "Matric number is required for students");
     }
 
-    const lecturer = await Lecturer.findOne({ email: lecturerEmail.toLowerCase() });
-    if (!lecturer) {
-      throw new HttpError(404, "Lecturer workspace not found");
-    }
+    // const lecturer = await Lecturer.findOne({ email: lecturerEmail.toLowerCase() });
+    // if (!lecturer) {
+    //   throw new HttpError(404, "Lecturer workspace not found");
+    // }
 
-    const existing = await Student.findOne({ lecturerId: lecturer.id, matricNo: matricNo.trim() });
+    const existing = await Student.findOne({ matricNo: matricNo.trim() });
     if (existing) {
-      throw new HttpError(409, "Student already exists in this lecturer workspace");
+      throw new HttpError(409, "Student already exists in this attendance workspace");
     }
 
     const student = await Student.create({
-      lecturerId: lecturer.id,
       name,
       matricNo: matricNo.trim(),
       passwordHash,
@@ -68,7 +68,6 @@ export const register = async (req, res) => {
     const token = signToken({
       id: student.id,
       role: "student",
-      lecturerId: lecturer.id,
       name: student.name,
       matricNo: student.matricNo
     });
@@ -79,8 +78,7 @@ export const register = async (req, res) => {
         id: student.id,
         role: "student",
         name: student.name,
-        matricNo: student.matricNo,
-        lecturerId: lecturer.id
+        matricNo: student.matricNo
       }
     });
   }
@@ -89,7 +87,7 @@ export const register = async (req, res) => {
 };
 
 export const login = async (req, res) => {
-  const { role, email, matricNo, password, lecturerEmail } = req.body;
+  const { role, email, matricNo, password } = req.body;
 
   if (!role || !password) {
     throw new HttpError(400, "Role and password are required");
@@ -109,12 +107,12 @@ export const login = async (req, res) => {
   }
 
   if (role === "student") {
-    const lecturer = await Lecturer.findOne({ email: (lecturerEmail || "").toLowerCase() });
-    if (!lecturer) {
-      throw new HttpError(401, "Invalid credentials");
-    }
+    // const lecturer = await Lecturer.findOne({ email: (lecturerEmail || "").toLowerCase() });
+    // if (!lecturer) {
+    //   throw new HttpError(401, "Invalid credentials");
+    // }
 
-    const student = await Student.findOne({ lecturerId: lecturer.id, matricNo: (matricNo || "").trim() });
+    const student = await Student.findOne({ matricNo: (matricNo || "").trim() });
     if (!student || !(await bcrypt.compare(password, student.passwordHash))) {
       throw new HttpError(401, "Invalid credentials");
     }
@@ -122,7 +120,6 @@ export const login = async (req, res) => {
     const token = signToken({
       id: student.id,
       role: "student",
-      lecturerId: lecturer.id,
       name: student.name,
       matricNo: student.matricNo
     });
@@ -134,7 +131,6 @@ export const login = async (req, res) => {
         role: "student",
         name: student.name,
         matricNo: student.matricNo,
-        lecturerId: lecturer.id
       }
     });
   }
