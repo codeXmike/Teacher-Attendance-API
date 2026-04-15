@@ -10,7 +10,6 @@ const serializeSession = (session, token, attendanceCount = 0) => ({
   courseId: session.courseId,
   lecturerId: session.lecturerId,
   token,
-  expiresAt: session.expiresAt,
   createdAt: session.createdAt,
   rotationIntervalSeconds: session.rotationIntervalSeconds,
   isActive: session.isActive,
@@ -40,7 +39,6 @@ export const startSession = (io) => async (req, res) => {
       courseId: course.id,
       lecturerId: req.auth.lecturerId,
       tokenHash,
-      expiresAt,
       rotationIntervalSeconds: env.sessionRotationSeconds,
       isActive: true
     });

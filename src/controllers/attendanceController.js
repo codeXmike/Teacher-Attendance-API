@@ -59,10 +59,6 @@ export const scanAttendance = (io) => async (req, res) => {
   }  
 
 
-  if (!session || session.expiresAt.getTime() < Date.now()) {
-    throw new HttpError(400, "Session token is invalid or expired");
-  }
-
   const alreadyRecorded = await Attendance.findOne({
     studentId: student.id,
     sessionId: session.id
