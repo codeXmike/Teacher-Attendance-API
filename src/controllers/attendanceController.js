@@ -9,7 +9,7 @@ import { validateLocation } from "../utils/validation.js";
 import { env } from "../config/env.js";
 
 export const scanAttendance = (io) => async (req, res) => {
-  const { token, studentId, lecturerId, location } = req.body;
+  const { token, studentId, location } = req.body;
 
   if (!token) {
     throw new HttpError(400, "Token is required");
@@ -35,26 +35,29 @@ export const scanAttendance = (io) => async (req, res) => {
   }
 
   const authStudentId = authPayload?.id;
-  const authLecturerId = authPayload?.lecturerId;
+  // const authLecturerId = authPayload?.lecturerId;
 
   const finalStudentId = authStudentId || studentId;
-  const finalLecturerId = authLecturerId || lecturerId;
+  const session = await Session.findOne({
+    tokenHash: hashToken(token),
+    isActive: true
+  }).populate("courseId");
 
-  if (!finalStudentId || !finalLecturerId) {
-    throw new HttpError(400, "Student and lecturer identification required");
-  }
+  const finalLecturerId = session.lecturerId; // ✅ FIXED (use session's lecturerId instead of auth payload)
+
+  if (!finalStudentId) {
+    throw new HttpError(400, "Student identification required");
+  }  
+  if (!finalLecturerId) {
+    throw new HttpError(400, "lecturer identification required");
+  }  
 
   // ✅ FIXED (no lecturerId check)
   const student = await Student.findById(finalStudentId);
   if (!student) {
     throw new HttpError(404, "Student not found");
-  }
+  }  
 
-  const session = await Session.findOne({
-    lecturerId: finalLecturerId,
-    tokenHash: hashToken(token),
-    isActive: true
-  }).populate("courseId");
 
   if (!session || session.expiresAt.getTime() < Date.now()) {
     throw new HttpError(400, "Session token is invalid or expired");
