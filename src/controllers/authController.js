@@ -7,7 +7,7 @@ import { HttpError } from "../utils/errors.js";
 
 const signToken = (payload) =>
   jwt.sign(payload, env.jwtSecret, {
-    expiresIn: "12h"
+    expiresIn: "160d"
   });
 
 export const register = async (req, res) => {
