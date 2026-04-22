@@ -5,15 +5,17 @@ import { env } from "../config/env.js";
 import { issueSessionToken } from "../services/tokenService.js";
 import { HttpError } from "../utils/errors.js";
 
-const serializeSession = (session, token, attendanceCount = 0) => ({
+const serializeSession = (session, token, attendanceCount = 0, qrAttendanceCount = 0) => ({
   id: session.id,
   courseId: session.courseId,
   lecturerId: session.lecturerId,
   token,
   createdAt: session.createdAt,
+  expiresAt: session.expiresAt,
   rotationIntervalSeconds: session.rotationIntervalSeconds,
   isActive: session.isActive,
-  attendanceCount
+  attendanceCount,
+  qrAttendanceCount
 });
 
 export const startSession = (io) => async (req, res) => {
@@ -39,13 +41,14 @@ export const startSession = (io) => async (req, res) => {
       courseId: course.id,
       lecturerId: req.auth.lecturerId,
       tokenHash,
+      expiresAt,
       rotationIntervalSeconds: env.sessionRotationSeconds,
       isActive: true
     });
 
     io.to(`lecturer:${req.auth.lecturerId}`).emit("session:started", { sessionId: session.id, courseId: course.id });
     res.status(201).json({
-      ...serializeSession(session, token, 0),
+      ...serializeSession(session, token, 0, 0),
       course
     });
   } catch (error) {
@@ -75,10 +78,15 @@ export const rotateSession = (io) => async (req, res) => {
     await session.save();
 
     const attendanceCount = await Attendance.countDocuments({ sessionId: session.id });
-    io.to(`session:${session.id}`).emit("session:rotated", { sessionId: session.id, expiresAt: session.expiresAt });
+    io.to(`session:${session.id}`).emit("session:rotated", {
+      sessionId: session.id,
+      expiresAt: session.expiresAt,
+      token,
+      qrAttendanceCount: 0
+    });
 
     res.json({
-      ...serializeSession(session, token, attendanceCount),
+      ...serializeSession(session, token, attendanceCount, 0),
       rotationIntervalSeconds: session.rotationIntervalSeconds
     });
   } catch (error) {

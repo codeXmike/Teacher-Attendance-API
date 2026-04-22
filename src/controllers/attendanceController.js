@@ -6,6 +6,8 @@ import { hashToken } from "../utils/crypto.js";
 import { HttpError } from "../utils/errors.js";
 import { validateLocation } from "../utils/validation.js";
 
+const MAX_STUDENTS_PER_QR = 10;
+
 export const scanAttendance = (io) => async (req, res) => {
   const { token, location } = req.body;
 
@@ -37,7 +39,7 @@ export const scanAttendance = (io) => async (req, res) => {
   }).populate("courseId");
 
   if (!session) {
-    throw new HttpError(404, "Invalid or expired session token");
+    throw new HttpError(404, "QR is expired.");
   }
 
   const finalLecturerId = session.lecturerId;
@@ -63,21 +65,33 @@ export const scanAttendance = (io) => async (req, res) => {
     throw new HttpError(409, "Attendance already recorded for this session");
   }
 
+  const qrAttendanceCount = await Attendance.countDocuments({
+    sessionId: session.id,
+    qrTokenHash: session.tokenHash
+  });
+
+  if (qrAttendanceCount >= MAX_STUDENTS_PER_QR) {
+    throw new HttpError(410, "QR is expired.");
+  }
+
   const attendance = await Attendance.create({
     lecturerId: finalLecturerId,
     studentId: student.id,
     sessionId: session.id,
+    qrTokenHash: session.tokenHash,
     timestamp: new Date()
   });
 
   const attendanceCount = await Attendance.countDocuments({
     sessionId: session.id
   });
+  const nextQrAttendanceCount = qrAttendanceCount + 1;
 
   io.to(`session:${session.id}`).emit("attendance:created", {
     id: attendance.id,
     sessionId: session.id,
     attendanceCount,
+    qrAttendanceCount: nextQrAttendanceCount,
     student: {
       id: student.id,
       name: student.name,
@@ -144,11 +158,16 @@ export const deleteAttendance = (io) => async (req, res) => {
   await Attendance.deleteOne({ _id: attendanceId });
 
   const attendanceCount = await Attendance.countDocuments({ sessionId });
+  const session = await Session.findById(sessionId).select("tokenHash");
+  const qrAttendanceCount = session
+    ? await Attendance.countDocuments({ sessionId, qrTokenHash: session.tokenHash })
+    : 0;
 
   io.to(`session:${sessionId}`).emit("attendance:deleted", {
     id: attendanceId,
     sessionId,
-    attendanceCount
+    attendanceCount,
+    qrAttendanceCount
   });
 
   res.json({ success: true });
