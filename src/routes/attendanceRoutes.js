@@ -7,7 +7,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 export const createAttendanceRoutes = (io) => {
   const router = Router();
 
-  router.post("/scan", asyncHandler(scanAttendance(io)));
+  router.post("/scan", authenticate(["student"]), asyncHandler(scanAttendance(io)));
   router.get("/session/:id", authenticate(["lecturer"]), asyncHandler(listAttendanceBySession));
   router.delete("/:attendanceId", authenticate(["lecturer"]), asyncHandler(deleteAttendance(io)));
   router.post("/manual", authenticate(["lecturer"]), asyncHandler(manuallyAddAttendance(io)));

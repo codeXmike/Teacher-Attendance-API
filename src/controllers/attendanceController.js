@@ -1,4 +1,3 @@
-import jwt from "jsonwebtoken";
 import { Attendance } from "../models/Attendance.js";
 import { Course } from "../models/Course.js";
 import { Session } from "../models/Session.js";
@@ -6,13 +5,21 @@ import { Student } from "../models/Student.js";
 import { hashToken } from "../utils/crypto.js";
 import { HttpError } from "../utils/errors.js";
 import { validateLocation } from "../utils/validation.js";
-import { env } from "../config/env.js";
 
 export const scanAttendance = (io) => async (req, res) => {
-  const { token, studentId, location } = req.body;
+  const { token, location } = req.body;
 
-  if (!token) {
+  if (!token || typeof token !== "string") {
     throw new HttpError(400, "Token is required");
+  }
+
+  const normalizedToken = token.trim();
+  if (!normalizedToken) {
+    throw new HttpError(400, "Token is required");
+  }
+
+  if (/^https?:\/\//i.test(normalizedToken) || normalizedToken.includes("/scan?token=")) {
+    throw new HttpError(400, "URL-based attendance tokens are not supported. Use live QR scan.");
   }
 
   if (location) {
@@ -23,41 +30,29 @@ export const scanAttendance = (io) => async (req, res) => {
     }
   }
 
-  let authPayload = null;
-  const authorization = req.headers.authorization || "";
-  if (authorization.startsWith("Bearer ")) {
-    const jwtToken = authorization.slice(7);
-    try {
-      authPayload = jwt.verify(jwtToken, env.jwtSecret);
-    } catch {
-      throw new HttpError(401, "Invalid authentication token");
-    }
-  }
-
-  const authStudentId = authPayload?.id;
-  // const authLecturerId = authPayload?.lecturerId;
-
-  const finalStudentId = authStudentId || studentId;
+  const finalStudentId = req.auth.id;
   const session = await Session.findOne({
-    tokenHash: hashToken(token),
+    tokenHash: hashToken(normalizedToken),
     isActive: true
   }).populate("courseId");
 
-  const finalLecturerId = session.lecturerId; // ✅ FIXED (use session's lecturerId instead of auth payload)
+  if (!session) {
+    throw new HttpError(404, "Invalid or expired session token");
+  }
+
+  const finalLecturerId = session.lecturerId;
 
   if (!finalStudentId) {
     throw new HttpError(400, "Student identification required");
-  }  
+  }
   if (!finalLecturerId) {
-    throw new HttpError(400, "lecturer identification required");
-  }  
+    throw new HttpError(400, "Lecturer identification required");
+  }
 
-  // ✅ FIXED (no lecturerId check)
   const student = await Student.findById(finalStudentId);
   if (!student) {
     throw new HttpError(404, "Student not found");
-  }  
-
+  }
 
   const alreadyRecorded = await Attendance.findOne({
     studentId: student.id,
@@ -175,7 +170,6 @@ export const manuallyAddAttendance = (io) => async (req, res) => {
     throw new HttpError(404, "Session not found");
   }
 
-  // ✅ FIXED (no lecturerId check)
   const student = await Student.findById(studentId);
   if (!student) {
     throw new HttpError(404, "Student not found");
@@ -236,9 +230,6 @@ export const getAvailableStudents = async (req, res) => {
     throw new HttpError(404, "Session not found");
   }
 
-  const course = await Course.findById(session.courseId);
-
-  // ✅ FIXED (no lecturerId filter)
   let query = {};
 
   if (searchQuery) {
@@ -254,13 +245,9 @@ export const getAvailableStudents = async (req, res) => {
     sessionId: session.id
   }).select("studentId");
 
-  const attendedSet = new Set(
-    attendedStudents.map((a) => a.studentId.toString())
-  );
+  const attendedSet = new Set(attendedStudents.map((a) => a.studentId.toString()));
 
-  const available = students.filter(
-    (s) => !attendedSet.has(s._id.toString())
-  );
+  const available = students.filter((s) => !attendedSet.has(s._id.toString()));
 
   res.json(available);
 };

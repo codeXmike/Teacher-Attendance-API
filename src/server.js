@@ -4,6 +4,7 @@ import { createApp } from "./app.js";
 
 const start = async () => {
   await connectDatabase();
+
   const { httpServer } = createApp();
   httpServer.listen(env.port, () => {
     console.log(`API listening on http://localhost:${env.port}`);
