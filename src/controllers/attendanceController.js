@@ -39,7 +39,7 @@ export const scanAttendance = (io) => async (req, res) => {
   }).populate("courseId");
 
   if (!session) {
-    throw new HttpError(404, "QR is expired.");
+    throw new HttpError(404, "QR is expired...");
   }
 
   const finalLecturerId = session.lecturerId;
