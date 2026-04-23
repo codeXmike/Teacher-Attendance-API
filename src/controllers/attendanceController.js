@@ -8,20 +8,60 @@ import { validateLocation } from "../utils/validation.js";
 
 const MAX_STUDENTS_PER_QR = 10;
 
+const normalizeScanToken = (input) => {
+  if (input == null) {
+    return "";
+  }
+
+  if (typeof input === "object") {
+    const nested = input.token ?? input.qrToken ?? input.sessionToken ?? input.data ?? input.value ?? input.payload;
+    return normalizeScanToken(nested);
+  }
+
+  const rawValue = String(input).trim();
+  if (!rawValue) {
+    return "";
+  }
+
+  if (rawValue.startsWith("{") || rawValue.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(rawValue);
+      return normalizeScanToken(parsed);
+    } catch {
+      // fall through to URL/raw handling
+    }
+  }
+
+  try {
+    const url = new URL(rawValue);
+    const queryKeys = ["token", "qrToken", "sessionToken", "data"];
+
+    for (const key of queryKeys) {
+      const nextValue = url.searchParams.get(key);
+      if (nextValue) {
+        return normalizeScanToken(nextValue);
+      }
+    }
+
+    const hashValue = url.hash.replace(/^#/, "").trim();
+    if (hashValue) {
+      return normalizeScanToken(hashValue);
+    }
+  } catch {
+    // Not a URL, continue with raw text fallback.
+  }
+
+  return rawValue;
+};
+
 export const scanAttendance = (io) => async (req, res) => {
-  const { token, location } = req.body;
+  const { location } = req.body;
+  const normalizedToken = normalizeScanToken(
+    req.body?.token ?? req.body?.qrToken ?? req.body?.sessionToken ?? req.body?.data ?? req.body?.value ?? req.body?.payload
+  );
 
-  if (!token || typeof token !== "string") {
-    throw new HttpError(400, "Token is required");
-  }
-
-  const normalizedToken = token.trim();
   if (!normalizedToken) {
-    throw new HttpError(400, "Token is required");
-  }
-
-  if (/^https?:\/\//i.test(normalizedToken) || normalizedToken.includes("/scan?token=")) {
-    throw new HttpError(400, "URL-based attendance tokens are not supported. Use live QR scan.");
+    throw new HttpError(400, "QR token is required");
   }
 
   if (location) {
