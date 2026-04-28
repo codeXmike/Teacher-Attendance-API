@@ -6,8 +6,6 @@ import { hashToken } from "../utils/crypto.js";
 import { HttpError } from "../utils/errors.js";
 import { validateLocation } from "../utils/validation.js";
 
-const MAX_STUDENTS_PER_QR = 10;
-
 const normalizeScanToken = (input) => {
   if (input == null) {
     return "";
@@ -105,13 +103,12 @@ export const scanAttendance = (io) => async (req, res) => {
     throw new HttpError(409, "Attendance already recorded for this session");
   }
 
-  const qrAttendanceCount = await Attendance.countDocuments({
-    sessionId: session.id,
-    qrTokenHash: session.tokenHash
+  const attendanceCount = await Attendance.countDocuments({
+    sessionId: session.id
   });
 
-  if (qrAttendanceCount >= MAX_STUDENTS_PER_QR) {
-    throw new HttpError(410, "QR is expired.");
+  if (attendanceCount >= session.studentLimit) {
+    throw new HttpError(410, "Attendance limit reached for this session.");
   }
 
   const attendance = await Attendance.create({
@@ -122,16 +119,13 @@ export const scanAttendance = (io) => async (req, res) => {
     timestamp: new Date()
   });
 
-  const attendanceCount = await Attendance.countDocuments({
-    sessionId: session.id
-  });
-  const nextQrAttendanceCount = qrAttendanceCount + 1;
+  const nextAttendanceCount = attendanceCount + 1;
 
   io.to(`session:${session.id}`).emit("attendance:created", {
     id: attendance.id,
     sessionId: session.id,
-    attendanceCount,
-    qrAttendanceCount: nextQrAttendanceCount,
+    attendanceCount: nextAttendanceCount,
+    qrAttendanceCount: nextAttendanceCount,
     student: {
       id: student.id,
       name: student.name,
@@ -171,7 +165,8 @@ export const listAttendanceBySession = async (req, res) => {
       id: session.id,
       course,
       expiresAt: session.expiresAt,
-      isActive: session.isActive
+      isActive: session.isActive,
+      studentLimit: session.studentLimit
     },
     rows: attendance.map((entry) => ({
       id: entry.id,
@@ -198,7 +193,13 @@ export const deleteAttendance = (io) => async (req, res) => {
   await Attendance.deleteOne({ _id: attendanceId });
 
   const attendanceCount = await Attendance.countDocuments({ sessionId });
-  const session = await Session.findById(sessionId).select("tokenHash");
+  const session = await Session.findById(sessionId).select("tokenHash isActive studentLimit");
+
+  if (session && !session.isActive && session.studentLimit > attendanceCount) {
+    session.studentLimit = attendanceCount;
+    await session.save();
+  }
+
   const qrAttendanceCount = session
     ? await Attendance.countDocuments({ sessionId, qrTokenHash: session.tokenHash })
     : 0;
@@ -243,6 +244,14 @@ export const manuallyAddAttendance = (io) => async (req, res) => {
     throw new HttpError(409, "Attendance already recorded for this session");
   }
 
+  const attendanceCount = await Attendance.countDocuments({
+    sessionId: session.id
+  });
+
+  if (session.isActive) {
+    throw new HttpError(400, "Manual attendance can only be added after the session has ended.");
+  }
+
   const attendance = await Attendance.create({
     lecturerId: req.auth.lecturerId,
     studentId: student.id,
@@ -250,14 +259,18 @@ export const manuallyAddAttendance = (io) => async (req, res) => {
     timestamp: new Date()
   });
 
-  const attendanceCount = await Attendance.countDocuments({
-    sessionId: session.id
-  });
+  const nextAttendanceCount = attendanceCount + 1;
+
+  if (!session.isActive) {
+    session.studentLimit = Math.max(session.studentLimit, nextAttendanceCount);
+    await session.save();
+  }
 
   io.to(`session:${session.id}`).emit("attendance:created", {
     id: attendance.id,
     sessionId: session.id,
-    attendanceCount,
+    attendanceCount: nextAttendanceCount,
+    qrAttendanceCount: nextAttendanceCount,
     student: {
       id: student.id,
       name: student.name,

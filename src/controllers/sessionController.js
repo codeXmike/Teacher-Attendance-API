@@ -13,6 +13,7 @@ const serializeSession = (session, token, attendanceCount = 0, qrAttendanceCount
   createdAt: session.createdAt,
   expiresAt: session.expiresAt,
   rotationIntervalSeconds: session.rotationIntervalSeconds,
+  studentLimit: session.studentLimit,
   isActive: session.isActive,
   attendanceCount,
   qrAttendanceCount
@@ -20,10 +21,14 @@ const serializeSession = (session, token, attendanceCount = 0, qrAttendanceCount
 
 export const startSession = (io) => async (req, res) => {
   try {
-    const { courseId } = req.body;
+    const { courseId, studentLimit } = req.body;
 
     if (!courseId) {
       throw new HttpError(400, "Course is required");
+    }
+    const normalizedStudentLimit = Number(studentLimit);
+    if (!Number.isInteger(normalizedStudentLimit) || normalizedStudentLimit < 1) {
+      throw new HttpError(400, "Student limit must be a whole number greater than 0");
     }
 
     const course = await Course.findOne({ _id: courseId, lecturerId: req.auth.lecturerId });
@@ -40,9 +45,11 @@ export const startSession = (io) => async (req, res) => {
     const session = await Session.create({
       courseId: course.id,
       lecturerId: req.auth.lecturerId,
+      tokenValue: token,
       tokenHash,
       expiresAt,
       rotationIntervalSeconds: env.sessionRotationSeconds,
+      studentLimit: normalizedStudentLimit,
       isActive: true
     });
 
@@ -73,6 +80,7 @@ export const rotateSession = (io) => async (req, res) => {
     }
 
     const { token, tokenHash, expiresAt } = issueSessionToken(session.rotationIntervalSeconds);
+    session.tokenValue = token;
     session.tokenHash = tokenHash;
     session.expiresAt = expiresAt;
     await session.save();
@@ -113,10 +121,12 @@ export const getSession = async (req, res) => {
       id: session.id,
       course: session.courseId,
       lecturerId: session.lecturerId,
+      token: session.isActive ? session.tokenValue : null,
       expiresAt: session.expiresAt,
       createdAt: session.createdAt,
       isActive: session.isActive,
-      attendanceCount
+      attendanceCount,
+      studentLimit: session.studentLimit
     });
   } catch (error) {
     if (error instanceof HttpError) {
@@ -154,10 +164,12 @@ export const listSessions = async (req, res) => {
       sessions.map((session) => ({
         id: session.id,
         course: session.courseId,
+        token: session.isActive ? session.tokenValue : null,
         expiresAt: session.expiresAt,
         createdAt: session.createdAt,
         isActive: session.isActive,
-        attendanceCount: countMap.get(session.id.toString()) || 0
+        attendanceCount: countMap.get(session.id.toString()) || 0,
+        studentLimit: session.studentLimit
       }))
     );
   } catch (error) {
@@ -189,5 +201,29 @@ export const stopSession = (io) => async (req, res) => {
       return res.status(error.status).json({ message: error.message });
     }
     res.status(500).json({ message: "Failed to stop session" });
+  }
+};
+
+export const deleteSession = (io) => async (req, res) => {
+  try {
+    const session = await Session.findOne({
+      _id: req.params.id,
+      lecturerId: req.auth.lecturerId
+    });
+
+    if (!session) {
+      throw new HttpError(404, "Session not found");
+    }
+
+    await Attendance.deleteMany({ sessionId: session.id, lecturerId: req.auth.lecturerId });
+    await Session.deleteOne({ _id: session.id });
+
+    io.to(`session:${session.id}`).emit("session:deleted", { sessionId: session.id });
+    res.json({ success: true });
+  } catch (error) {
+    if (error instanceof HttpError) {
+      return res.status(error.status).json({ message: error.message });
+    }
+    res.status(500).json({ message: "Failed to delete session" });
   }
 };

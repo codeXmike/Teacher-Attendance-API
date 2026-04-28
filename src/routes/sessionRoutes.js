@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getSession, listSessions, rotateSession, startSession, stopSession } from "../controllers/sessionController.js";
+import { deleteSession, getSession, listSessions, rotateSession, startSession, stopSession } from "../controllers/sessionController.js";
 import { authenticate } from "../middleware/auth.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
@@ -12,6 +12,7 @@ export const createSessionRoutes = (io) => {
   router.get("/:id", asyncHandler(getSession));
   router.post("/:id/rotate", asyncHandler(rotateSession(io)));
   router.post("/:id/stop", asyncHandler(stopSession(io)));
+  router.delete("/:id", asyncHandler(deleteSession(io)));
 
   return router;
 };
