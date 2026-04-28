@@ -5,6 +5,15 @@ import { env } from "../config/env.js";
 import { issueSessionToken } from "../services/tokenService.js";
 import { HttpError } from "../utils/errors.js";
 
+const getEffectiveStudentLimit = (session, attendanceCount = 0) => {
+  const limit = Number(session?.studentLimit || 0);
+  if (Number.isInteger(limit) && limit > 0) {
+    return limit;
+  }
+
+  return attendanceCount;
+};
+
 const serializeSession = (session, token, attendanceCount = 0, qrAttendanceCount = 0) => ({
   id: session.id,
   courseId: session.courseId,
@@ -13,7 +22,7 @@ const serializeSession = (session, token, attendanceCount = 0, qrAttendanceCount
   createdAt: session.createdAt,
   expiresAt: session.expiresAt,
   rotationIntervalSeconds: session.rotationIntervalSeconds,
-  studentLimit: session.studentLimit,
+  studentLimit: getEffectiveStudentLimit(session, attendanceCount),
   isActive: session.isActive,
   attendanceCount,
   qrAttendanceCount
@@ -83,7 +92,7 @@ export const rotateSession = (io) => async (req, res) => {
     session.tokenValue = token;
     session.tokenHash = tokenHash;
     session.expiresAt = expiresAt;
-    await session.save();
+    await session.save({ validateBeforeSave: false });
 
     const attendanceCount = await Attendance.countDocuments({ sessionId: session.id });
     io.to(`session:${session.id}`).emit("session:rotated", {
@@ -126,7 +135,7 @@ export const getSession = async (req, res) => {
       createdAt: session.createdAt,
       isActive: session.isActive,
       attendanceCount,
-      studentLimit: session.studentLimit
+      studentLimit: getEffectiveStudentLimit(session, attendanceCount)
     });
   } catch (error) {
     if (error instanceof HttpError) {
@@ -161,16 +170,20 @@ export const listSessions = async (req, res) => {
     const countMap = new Map(counts.map((entry) => [entry._id.toString(), entry.count]));
 
     res.json(
-      sessions.map((session) => ({
-        id: session.id,
-        course: session.courseId,
-        token: session.isActive ? session.tokenValue : null,
-        expiresAt: session.expiresAt,
-        createdAt: session.createdAt,
-        isActive: session.isActive,
-        attendanceCount: countMap.get(session.id.toString()) || 0,
-        studentLimit: session.studentLimit
-      }))
+      sessions.map((session) => {
+        const attendanceCount = countMap.get(session.id.toString()) || 0;
+
+        return {
+          id: session.id,
+          course: session.courseId,
+          token: session.isActive ? session.tokenValue : null,
+          expiresAt: session.expiresAt,
+          createdAt: session.createdAt,
+          isActive: session.isActive,
+          attendanceCount,
+          studentLimit: getEffectiveStudentLimit(session, attendanceCount)
+        };
+      })
     );
   } catch (error) {
     if (error instanceof HttpError) {
@@ -193,13 +206,14 @@ export const stopSession = (io) => async (req, res) => {
     }
 
     session.isActive = false;
-    await session.save();
+    await session.save({ validateBeforeSave: false });
     io.to(`session:${session.id}`).emit("session:stopped", { sessionId: session.id });
     res.json({ success: true });
   } catch (error) {
     if (error instanceof HttpError) {
       return res.status(error.status).json({ message: error.message });
     }
+    console.error("Failed to stop session:", error);
     res.status(500).json({ message: "Failed to stop session" });
   }
 };
@@ -224,6 +238,7 @@ export const deleteSession = (io) => async (req, res) => {
     if (error instanceof HttpError) {
       return res.status(error.status).json({ message: error.message });
     }
+    console.error("Failed to delete session:", error);
     res.status(500).json({ message: "Failed to delete session" });
   }
 };

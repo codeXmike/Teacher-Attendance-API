@@ -6,6 +6,15 @@ import { hashToken } from "../utils/crypto.js";
 import { HttpError } from "../utils/errors.js";
 import { validateLocation } from "../utils/validation.js";
 
+const getEffectiveStudentLimit = (session, attendanceCount = 0) => {
+  const limit = Number(session?.studentLimit || 0);
+  if (Number.isInteger(limit) && limit > 0) {
+    return limit;
+  }
+
+  return attendanceCount;
+};
+
 const normalizeScanToken = (input) => {
   if (input == null) {
     return "";
@@ -107,7 +116,7 @@ export const scanAttendance = (io) => async (req, res) => {
     sessionId: session.id
   });
 
-  if (attendanceCount >= session.studentLimit) {
+  if (attendanceCount >= getEffectiveStudentLimit(session, attendanceCount)) {
     throw new HttpError(410, "Attendance limit reached for this session.");
   }
 
@@ -166,7 +175,7 @@ export const listAttendanceBySession = async (req, res) => {
       course,
       expiresAt: session.expiresAt,
       isActive: session.isActive,
-      studentLimit: session.studentLimit
+      studentLimit: getEffectiveStudentLimit(session, attendance.length)
     },
     rows: attendance.map((entry) => ({
       id: entry.id,
@@ -197,7 +206,7 @@ export const deleteAttendance = (io) => async (req, res) => {
 
   if (session && !session.isActive && session.studentLimit > attendanceCount) {
     session.studentLimit = attendanceCount;
-    await session.save();
+    await session.save({ validateBeforeSave: false });
   }
 
   const qrAttendanceCount = session
@@ -262,8 +271,8 @@ export const manuallyAddAttendance = (io) => async (req, res) => {
   const nextAttendanceCount = attendanceCount + 1;
 
   if (!session.isActive) {
-    session.studentLimit = Math.max(session.studentLimit, nextAttendanceCount);
-    await session.save();
+    session.studentLimit = Math.max(getEffectiveStudentLimit(session, attendanceCount), nextAttendanceCount);
+    await session.save({ validateBeforeSave: false });
   }
 
   io.to(`session:${session.id}`).emit("attendance:created", {

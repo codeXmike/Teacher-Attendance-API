@@ -8,6 +8,7 @@ import { courseRoutes } from "./routes/courseRoutes.js";
 import { createSessionRoutes } from "./routes/sessionRoutes.js";
 import { createAttendanceRoutes } from "./routes/attendanceRoutes.js";
 import { errorHandler } from "./middleware/errorHandler.js";
+import { HttpError } from "./utils/errors.js";
 import jwt from "jsonwebtoken";
 
 export const createApp = () => {
@@ -93,6 +94,9 @@ export const createApp = () => {
   app.use("/courses", courseRoutes);
   app.use("/session", createSessionRoutes(io));
   app.use("/attendance", createAttendanceRoutes(io));
+  app.use((_req, _res, next) => {
+    next(new HttpError(404, "Endpoint not found"));
+  });
   app.use(errorHandler);
 
   return { app, httpServer };
